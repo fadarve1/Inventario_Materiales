@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Catálogo de Inventario</title>
+  <!-- Tailwind CSS para diseño adaptable -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- PapaParse para procesar el CSV de Google Sheets -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen p-4 md:p-8">
+
+  <div class="max-w-7xl mx-auto">
+    <!-- Encabezado -->
+    <header class="mb-8 text-center md:text-left flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+      <div>
+        <h1 class="text-3xl font-extrabold text-gray-800">Catálogo de Inventario</h1>
+        <p class="text-sm text-gray-500 mt-1" id="totalItems">Cargando productos...</p>
+      </div>
+      <div class="mt-4 md:mt-0 text-right">
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+          ● Actualizado en tiempo real
+        </span>
+      </div>
+    </header>
+
+    <!-- Barra de Filtros y Búsqueda -->
+    <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-8 grid grid-cols-1 md:grid-cols-4 gap-4">
+      <!-- Buscador principal -->
+      <div class="md:col-span-2">
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Buscar por Descripción o Código</label>
+        <input type="text" id="searchInput" placeholder="Ej. Broca, Caja #1, Item 001..." 
+               class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm">
+      </div>
+
+      <!-- Filtro Categoría -->
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Categoría</label>
+        <select id="categoryFilter" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm">
+          <option value="">Todas las categorías</option>
+        </select>
+      </div>
+
+      <!-- Filtro Ubicación / Embalaje -->
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Ubicación / Embalaje</label>
+        <select id="packagingFilter" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm">
+          <option value="">Todas las ubicaciones</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Rejilla del Catálogo -->
+    <div id="catalog" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+      <div class="col-span-full text-center py-12 text-gray-500">
+        Cargando catálogo desde Google Sheets...
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ⚠️ REEMPLAZA ESTA URL CON TU ENLACE CSV PUBLICADO DE GOOGLE SHEETS ⚠️
+    const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT0zY7eZ24W9JUyftT5m8JCVuv-q-k0llIVxAo8pVpCW_vuYojCa6zQ7At7RbSBALIL9vI8iWdBI0r3/pub?gid=1461146982&single=true&output=csv';
+	//https://docs.google.com/spreadsheets/d/e/2PACX-1vT0zY7eZ24W9JUyftT5m8JCVuv-q-k0llIVxAo8pVpCW_vuYojCa6zQ7At7RbSBALIL9vI8iWdBI0r3/pub?gid=1461146982&single=true&output=csv
+
+    let inventory = [];
+
+    // Cargar datos vía PapaParse
+    Papa.parse(SHEET_CSV_URL, {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      complete: function(results) {
+        inventory = results.data;
+        initFilters(inventory);
+        renderCatalog(inventory);
+      },
+      error: function(err) {
+        document.getElementById('catalog').innerHTML = `
+          <div class="col-span-full text-center py-12 text-red-500">
+            Error al cargar el inventario. Verifica que el Google Sheet esté publicado como CSV.
+          </div>`;
+      }
+    });
+
+    // Inicializar desplegables de filtro dinámicamente
+    function initFilters(data) {
+      const categories = [...new Set(data.map(i => i['Categoría']).filter(Boolean))].sort();
+      const packagings = [...new Set(data.map(i => i['Embalaje']).filter(Boolean))].sort();
+
+      const catSelect = document.getElementById('categoryFilter');
+      categories.forEach(cat => {
+        catSelect.innerHTML += `<option value="${cat}">${cat}</option>`;
+      });
+
+      const packSelect = document.getElementById('packagingFilter');
+      packagings.forEach(pack => {
+        packSelect.innerHTML += `<option value="${pack}">${pack}</option>`;
+      });
+    }
+
+// Formatear moneda COP/USD para cada tarjeta
+function formatMoney(amount) {
+  if (!amount) return '$ 0';
+  const number = parseFloat(amount.toString().replace(/[^0-9.-]+/g, ""));
+  return isNaN(number) ? '$ 0' : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(number);
+}
+
+// Formatear la sumatoria total redondeada a miles
+function formatTotalInThousands(amount) {
+  if (!amount || isNaN(amount)) return '$ 0';
+  // Redondear al mil más cercano
+  const roundedToThousands = Math.round(amount / 1000) * 1000;
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(roundedToThousands);
+}
+
+// Renderizar tarjetas de producto
+function renderCatalog(items) {
+  const container = document.getElementById('catalog');
+  const totalCount = document.getElementById('totalItems');
+  container.innerHTML = '';
+
+  // 1. Sumatoria EXCLUSIVA de la columna 'PRECIO ACTUAL' (Columna J)
+  const totalValue = items.reduce((acc, item) => {
+    const priceStr = item['PRECIO ACTUAL'] || '0';
+    const price = parseFloat(priceStr.toString().replace(/[^0-9.-]+/g, "")) || 0;
+    return acc + price;
+  }, 0);
+
+  // ⚠️ REEMPLAZA ESTA URL CON EL ENLACE A TU FORMULARIO (Google Forms, Tally, Typeform, etc.) ⚠️
+  const FORM_URL = 'https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=DQSIkWdsW0yxEjajBLZtrQAAAAAAAAAAAAEgp0wyDg9UQUxQMEk0NE1LUzJQN1lLQjVHRDVBQTdPOC4u';
+
+  // 2. Inyectar el texto, el total acumulado y el botón para ofertar
+  totalCount.innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        Mostrando <span class="font-bold text-gray-800">${items.length}</span> productos 
+        <span class="mx-2 text-gray-300">|</span> 
+        Total Inventario: <span class="font-bold text-green-700">${formatTotalInThousands(totalValue)}</span> 
+        <span class="text-xs text-gray-400 font-normal">(redondeado a miles)</span>
+      </div>
+      <a href="${FORM_URL}" target="_blank" rel="noopener noreferrer" 
+         class="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs px-3 py-1.5 rounded-lg shadow-sm transition-colors">
+        ✏️ Haga su oferta aquí
+      </a>
+    </div>
+  `;
+
+  if (items.length === 0) {
+    container.innerHTML = `<div class="col-span-full text-center py-12 text-gray-500">No se encontraron productos coincidentes.</div>`;
+    return;
+  }
+
+  items.forEach(item => {
+    const rawImg = item['ruta_imagen'] ? item['ruta_imagen'].trim() : '';
+    const imageSrc = rawImg 
+      ? `https://lh3.googleusercontent.com/d/${rawImg}`
+      : 'https://via.placeholder.com/300x200?text=Sin+Imagen';
+
+    const card = document.createElement('div');
+    card.className = 'bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col justify-between hover:shadow-md transition-shadow';
+
+    card.innerHTML = `
+      <div>
+        <div class="relative bg-gray-100 h-48 w-full overflow-hidden">
+          <img src="${imageSrc}" alt="${item['Descripcion'] || 'Producto'}" 
+               class="w-full h-full object-cover"
+               onerror="this.onerror=null; this.src='https://via.placeholder.com/300x200?text=Imagen+No+Disponible';">
+          ${item['Embalaje'] ? `<span class="absolute top-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-md backdrop-blur-sm">${item['Embalaje']}</span>` : ''}
+        </div>
+
+        <div class="p-4">
+          <div class="flex items-center justify-between text-xs text-gray-400 mb-1">
+            <span>Item: ${item['Item'] || 'N/A'}</span>
+            ${item['Código Alternativo'] ? `<span>Alt: ${item['Código Alternativo']}</span>` : ''}
+          </div>
+
+          ${item['Categoría'] ? `<span class="inline-block bg-blue-50 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded mb-2">${item['Categoría']}</span>` : ''}
+
+          <h2 class="font-bold text-gray-800 text-base leading-snug line-clamp-2">${item['Descripcion'] || 'Sin Descripción'}</h2>
+
+          ${item['Descripcion Alternativa'] ? `<p class="text-xs text-gray-500 mt-1 italic line-clamp-2">${item['Descripcion Alternativa']}</p>` : ''}
+        </div>
+      </div>
+
+      <div class="p-4 pt-0">
+        <div class="border-t border-gray-100 pt-3 flex items-center justify-between mt-2">
+          <div>
+            <span class="block text-[10px] uppercase text-gray-400 font-bold">Disponible</span>
+            <span class="text-sm font-semibold text-gray-700">${item['Cantidad'] || '0'} unds</span>
+          </div>
+          <div class="text-right">
+            <span class="block text-[10px] uppercase text-gray-400 font-bold">Precio</span>
+            <span class="text-base font-extrabold text-green-600">${formatMoney(item['PRECIO ACTUAL'])}</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    container.appendChild(card);
+  });
+}
+
+    // Escuchar eventos de filtro
+    function filterData() {
+      const query = document.getElementById('searchInput').value.toLowerCase();
+      const selectedCat = document.getElementById('categoryFilter').value;
+      const selectedPack = document.getElementById('packagingFilter').value;
+
+      const filtered = inventory.filter(item => {
+        const matchesSearch = 
+          (item['Descripcion'] && item['Descripcion'].toLowerCase().includes(query)) ||
+          (item['Descripcion Alternativa'] && item['Descripcion Alternativa'].toLowerCase().includes(query)) ||
+          (item['Item'] && item['Item'].toLowerCase().includes(query)) ||
+          (item['Código Alternativo'] && item['Código Alternativo'].toLowerCase().includes(query));
+
+        const matchesCategory = selectedCat === '' || item['Categoría'] === selectedCat;
+        const matchesPackaging = selectedPack === '' || item['Embalaje'] === selectedPack;
+
+        return matchesSearch && matchesCategory && matchesPackaging;
+      });
+
+      renderCatalog(filtered);
+    }
+
+    document.getElementById('searchInput').addEventListener('input', filterData);
+    document.getElementById('categoryFilter').addEventListener('change', filterData);
+    document.getElementById('packagingFilter').addEventListener('change', filterData);
+  </script>
+</body>
+</html>
